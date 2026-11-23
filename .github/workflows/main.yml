@@ -111,6 +111,7 @@ jobs:
             const components = [
               "        <activity android:name=\"com.santralbayi.app.LiveCallActivity\" android:exported=\"false\" android:launchMode=\"singleTop\" android:taskAffinity=\"com.santralbayi.app.call\" android:excludeFromRecents=\"true\" android:showWhenLocked=\"true\" android:turnScreenOn=\"true\" android:screenOrientation=\"portrait\" android:theme=\"@android:style/Theme.DeviceDefault.NoActionBar\" />",
               "        <service android:name=\"com.santralbayi.app.MissedCallMonitorService\" android:exported=\"false\" android:foregroundServiceType=\"dataSync\" />",
+              "        <service android:name=\"com.santralbayi.app.SantralFcmService\" android:exported=\"false\"><intent-filter><action android:name=\"com.google.firebase.MESSAGING_EVENT\" /></intent-filter></service>",
               "        <receiver android:name=\"com.santralbayi.app.MissedCallActionReceiver\" android:exported=\"false\" />",
               "        <receiver android:name=\"com.santralbayi.app.BootCompletedReceiver\" android:exported=\"true\"><intent-filter><action android:name=\"android.intent.action.BOOT_COMPLETED\" /><action android:name=\"android.intent.action.MY_PACKAGE_REPLACED\" /></intent-filter></receiver>"
             ].filter(line => {
@@ -121,6 +122,31 @@ jobs:
               xml = xml.replace("</application>", components + "\n    </application>");
             }
             fs.writeFileSync(p, xml);
+
+            // Google Anlık Uyandırma (FCM) kütüphanesi & google-services.json otomatik bağlama
+            const appGradlePath = "android/app/build.gradle";
+            let appGradle = fs.readFileSync(appGradlePath, "utf8");
+            if (!appGradle.includes("firebase-messaging")) {
+              appGradle = appGradle.replace(
+                "dependencies {",
+                "dependencies {\n    implementation \"com.google.firebase:firebase-messaging:24.1.0\""
+              );
+              fs.writeFileSync(appGradlePath, appGradle);
+            }
+            const gsCandidates = ["google-services.json", "android-bridge/google-services.json"];
+            const foundGs = gsCandidates.find(f => fs.existsSync(f));
+            if (foundGs) {
+              fs.copyFileSync(foundGs, "android/app/google-services.json");
+              const rootGradlePath = "android/build.gradle";
+              let rootGradle = fs.readFileSync(rootGradlePath, "utf8");
+              if (!rootGradle.includes("com.google.gms:google-services")) {
+                rootGradle = rootGradle.replace(
+                  /dependencies\s*\{/,
+                  "dependencies {\n        classpath \"com.google.gms:google-services:4.4.2\""
+                );
+                fs.writeFileSync(rootGradlePath, rootGradle);
+              }
+            }
           '
           cat << 'EOF' > android/app/src/main/res/values/colors.xml
           <?xml version="1.0" encoding="utf-8"?>
