@@ -21,6 +21,7 @@ import org.json.JSONObject;
 public class MissedCallActionReceiver extends BroadcastReceiver {
     public static final String ACTION_TRANSFER_TO_OWNER = "com.santralbayi.app.ACTION_TRANSFER_TO_OWNER";
     public static final String ACTION_CALLBACK_CALLER = "com.santralbayi.app.ACTION_CALLBACK_CALLER";
+    public static final String ACTION_DISMISS_CALL = "com.santralbayi.app.ACTION_DISMISS_CALL";
     private static final String LIVE_SERVER_ORIGIN = "http://178.208.187.42:3000";
 
     @Override
@@ -32,6 +33,20 @@ public class MissedCallActionReceiver extends BroadcastReceiver {
         final String callerPhone = intent.getStringExtra("missed_call_phone");
         final String ownerPhone = intent.getStringExtra("owner_phone");
         final String callerLabel = intent.getStringExtra("caller_label");
+
+        if (ACTION_DISMISS_CALL.equals(action)) {
+            if (notifKey != null && !notifKey.isEmpty()) {
+                AndroidBridge.cancelNativeMissedCallNotification(context, notifKey);
+            }
+            try {
+                Intent endIntent = new Intent(MissedCallMonitorService.ACTION_LIVE_CALL_ENDED);
+                endIntent.setPackage(context.getPackageName());
+                endIntent.putExtra("missed_call_uuid", callUuid != null ? callUuid : "");
+                context.sendBroadcast(endIntent);
+            } catch (Exception ignored) {
+            }
+            return;
+        }
 
         if (ACTION_CALLBACK_CALLER.equals(action)) {
             if (notifKey != null && !notifKey.isEmpty()) {

@@ -7,6 +7,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.Person;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
@@ -284,9 +285,12 @@ public class AndroidBridge {
     public String getNativePermissionStatus() {
         JSONObject obj = new JSONObject();
         try {
+            SharedPreferences prefs = activity.getSharedPreferences("sb_offline_auth_prefs", Context.MODE_PRIVATE);
+            String fcmTok = prefs.getString("fcm_push_token", "");
             obj.put("apkVersion", NATIVE_APK_VERSION);
             obj.put("sdkInt", Build.VERSION.SDK_INT);
             obj.put("isXiaomi", isXiaomiFamilyDevice());
+            obj.put("fcmReady", fcmTok != null && fcmTok.trim().length() > 20);
             obj.put("overlayGranted", hasOverlayPermission());
             obj.put("batteryIgnored", isBatteryOptimizationIgnored());
             obj.put("fullScreenIntentGranted", canUseFullScreenIntent());
@@ -568,42 +572,57 @@ public class AndroidBridge {
                     : new Notification.Builder(context);
 
             int iconRes = context.getApplicationInfo().icon;
-            if (iconRes == 0) iconRes = android.R.drawable.sym_call_missed;
+            if (iconRes == 0) iconRes = android.R.drawable.sym_call_incoming;
 
             builder.setSmallIcon(iconRes)
                     .setContentTitle(safeTitle)
                     .setContentText(safeBody)
-                    .setStyle(new Notification.BigTextStyle().bigText(safeBody))
                     .setAutoCancel(true)
-                    .setContentIntent(isLiveCall ? fullScreenCallPi : pendingIntent)
+                    .setContentIntent(fullScreenCallPi)
                     .setWhen(System.currentTimeMillis())
                     .setShowWhen(true)
-                    .setCategory(isLiveCall ? Notification.CATEGORY_CALL : Notification.CATEGORY_MISSED_CALL)
-                    .setVisibility(Notification.VISIBILITY_PUBLIC);
+                    .setCategory(Notification.CATEGORY_CALL)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC)
+                    .setFullScreenIntent(fullScreenCallPi, true)
+                    .setOngoing(true);
 
-            if (isLiveCall) {
-                builder.setFullScreenIntent(fullScreenCallPi, true);
-                builder.setOngoing(true);
-            }
-
-            String primaryActionLabel = isLiveCall ? "✅ Müsaitim, Bana Aktar" : "📞 Müsaitim, Hemen Ara";
-            if (!safeCallerPhone.isEmpty() || !safeUuid.isEmpty()) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    builder.addAction(new Notification.Action.Builder(
-                            android.R.drawable.sym_action_call,
-                            primaryActionLabel,
-                            primaryActionPi
-                    ).build());
-                    builder.addAction(new Notification.Action.Builder(
-                            android.R.drawable.ic_menu_view,
-                            "📋 Kaydı Gör",
-                            pendingIntent
-                    ).build());
-                } else {
-                    //noinspection deprecation
-                    builder.addAction(android.R.drawable.sym_action_call, primaryActionLabel, primaryActionPi);
-                    //noinspection deprecation
-                    builder.addAction(android.R.drawable.ic_menu_view, "📋 Kaydı Gör", pendingIntent);
+            // Android 12+ (API 31+): WhatsApp ile birebir aynı resmi gelen arama stili (CallStyle) — ekstra pil/üstte göster izni gerektirmez!
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    String displayCaller = !callerLabel.isEmpty()
+                            ? callerLabel
+                            : (!safeCallerPhone.isEmpty() ? safeCallerPhone : "Gelen Arama");
+                    Person callerPerson = new Person.Builder()
+                            .setName(displayCaller)
+                            .setImportant(true)
+                            .build();
+                    Intent dismissIntent = new Intent(context, MissedCallActionReceiver.class);
+                    dismissIntent.setAction(MissedCallActionReceiver.ACTION_DISMISS_CALL);
+                    dismissIntent.putExtra("notif_key", notifKey != null ? notifKey : "");
+                    PendingIntent declinePi = PendingIntent.getBroadcast(
+                            context,
+                            (notifId ^ 0x3C3C) & 0x7FFFFFFF,
+                            dismissIntent,
+                            piFlags
+                    );
+                    builder.setStyle(Notification.CallStyle.forIncomingCall(callerPerson, declinePi, primaryActionPi));
+                } catch (Exception ignoredCallStyle) {
+                    builder.setStyle(new Notification.BigTextStyle().bigText(safeBody));
+                }
+            } else {
+                builder.setStyle(new Notification.BigTextStyle().bigText(safeBody));
+                String primaryActionLabel = "✅ Müsaitim, Bana Aktar";
+                if (!safeCallerPhone.isEmpty() || !safeUuid.isEmpty()) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        builder.addAction(new Notification.Action.Builder(
+                                android.R.drawable.sym_action_call,
+                                primaryActionLabel,
+                                primaryActionPi
+                        ).build());
+                    } else {
+                        //noinspection deprecation
+                        builder.addAction(android.R.drawable.sym_action_call, primaryActionLabel, primaryActionPi);
+                    }
                 }
             }
 
@@ -688,6 +707,7 @@ public class AndroidBridge {
             } else {
                 prefs.edit().putString("tracked_owner_phone11", digits).apply();
                 MissedCallMonitorService.startIfTracked(activity.getApplicationContext());
+                SantralFcmService.syncCurrentToken(activity.getApplicationContext());
             }
         } catch (Exception ignored) {
         }

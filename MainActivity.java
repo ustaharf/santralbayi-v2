@@ -202,6 +202,7 @@ public class MainActivity extends BridgeActivity {
         AndroidBridge.ensureMissedCallNotificationChannel(this);
         handleNotificationOpenIntent(getIntent());
         MissedCallMonitorService.startIfTracked(getApplicationContext());
+        SantralFcmService.syncCurrentToken(getApplicationContext());
         new Handler(Looper.getMainLooper()).postDelayed(this::requestNeededPermissionsSafe, 550);
     }
 
@@ -255,7 +256,7 @@ public class MainActivity extends BridgeActivity {
             }
         } catch (Exception ignored) {
         }
-        new Handler(Looper.getMainLooper()).postDelayed(this::promptStandaloneCallPermissionsOnce, 600);
+        SantralFcmService.syncCurrentToken(getApplicationContext());
     }
 
     @Override
@@ -295,8 +296,6 @@ public class MainActivity extends BridgeActivity {
             }
             if (!needed.isEmpty()) {
                 ActivityCompat.requestPermissions(this, needed.toArray(new String[0]), PERMISSION_REQUEST_CODE);
-            } else {
-                new Handler(Looper.getMainLooper()).postDelayed(this::promptStandaloneCallPermissionsOnce, 350);
             }
         } catch (Exception ignored) {
         }
@@ -306,88 +305,18 @@ public class MainActivity extends BridgeActivity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            new Handler(Looper.getMainLooper()).postDelayed(this::promptStandaloneCallPermissionsOnce, 450);
-        }
-    }
-
-    private void promptStandaloneCallPermissionsOnce() {
-        try {
-            if (isFinishing() || isDestroyed() || !isAppInForeground) return;
-            if (activePermDialog != null && activePermDialog.isShowing()) return;
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
-
-            SharedPreferences prefs = getSharedPreferences("sb_offline_auth_prefs", Context.MODE_PRIVATE);
-            boolean needsOverlay = !Settings.canDrawOverlays(this);
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            boolean needsBattery = pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName());
-            boolean needsFullScreen = false;
-            if (Build.VERSION.SDK_INT >= 34) {
-                android.app.NotificationManager nm = (android.app.NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                needsFullScreen = nm != null && !nm.canUseFullScreenIntent();
-            }
-
-            if (needsOverlay && !prefs.getBoolean("asked_overlay_perm_v21", false)) {
-                prefs.edit().putBoolean("asked_overlay_perm_v21", true).apply();
-                activePermDialog = new AlertDialog.Builder(this)
-                        .setTitle("1/4 • Ana Ekranda Tam Ekran Arama İzni")
-                        .setMessage("Arama geldiğinde uygulama kapalı olsa bile telefonun ana ekranında tam ekran arama açılması için 'Diğer uygulamaların üzerinde göster' iznini açın.")
-                        .setCancelable(true)
-                        .setPositiveButton("İzni Aç", (d, w) -> {
-                            try {
-                                Intent i = new Intent(
-                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                        Uri.parse("package:" + getPackageName())
-                                );
-                                startActivity(i);
-                            } catch (Exception ignored) {
-                            }
-                        })
-                        .setNegativeButton("Sonra", (d, w) -> new Handler(Looper.getMainLooper()).postDelayed(this::promptStandaloneCallPermissionsOnce, 300))
-                        .show();
-                return;
-            }
-
-            if (needsFullScreen && !prefs.getBoolean("asked_fullscreen_perm_v21", false)) {
-                prefs.edit().putBoolean("asked_fullscreen_perm_v21", true).apply();
-                activePermDialog = new AlertDialog.Builder(this)
-                        .setTitle("2/4 • Kilit Ekranında Tam Ekran Arama")
-                        .setMessage("Telefon kilitliyken gelen aramanın kilit ekranı üstünde açılması için tam ekran bildirim iznini açın.")
-                        .setCancelable(true)
-                        .setPositiveButton("İzni Aç", (d, w) -> {
-                            try {
-                                Intent i = new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT);
-                                i.setData(Uri.parse("package:" + getPackageName()));
-                                startActivity(i);
-                            } catch (Exception ignored) {
-                            }
-                        })
-                        .setNegativeButton("Sonra", (d, w) -> new Handler(Looper.getMainLooper()).postDelayed(this::promptStandaloneCallPermissionsOnce, 300))
-                        .show();
-                return;
-            }
-
-            if (needsBattery && !prefs.getBoolean("asked_battery_perm_v21", false)) {
-                prefs.edit().putBoolean("asked_battery_perm_v21", true).apply();
+            SantralFcmService.syncCurrentToken(getApplicationContext());
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 try {
-                    Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                    i.setData(Uri.parse("package:" + getPackageName()));
-                    startActivity(i);
+                    if (this.getBridge() != null && this.getBridge().getWebView() != null) {
+                        this.getBridge().getWebView().evaluateJavascript(
+                                "window.dispatchEvent(new Event('sb-permissions-granted'));",
+                                null
+                        );
+                    }
                 } catch (Exception ignored) {
                 }
-                return;
-            }
-
-            if (AndroidBridge.isXiaomiFamilyDevice() && !prefs.getBoolean("asked_xiaomi_lock_perm_v21", false)) {
-                prefs.edit().putBoolean("asked_xiaomi_lock_perm_v21", true).apply();
-                activePermDialog = new AlertDialog.Builder(this)
-                        .setTitle("Son Adım • Kilit Ekranı Üstünde Göster İzni")
-                        .setMessage("Açılacak ekranda şu iki izni 'Her zaman izin ver' yapın:\n\n1) Kilit ekranında göster\n2) Arka planda çalışırken açılır pencereleri görüntüle\n\nBöylece telefon kilitliyken bile tam ekran arama anında en üstte açılır.")
-                        .setCancelable(true)
-                        .setPositiveButton("İzinleri Aç", (d, w) -> AndroidBridge.openXiaomiLockScreenPermissions(this))
-                        .setNegativeButton("Sonra", null)
-                        .show();
-            }
-        } catch (Exception ignored) {
+            }, 250);
         }
     }
 }
