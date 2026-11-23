@@ -133,22 +133,28 @@ public class LiveCallActivity extends Activity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
-            try {
-                KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
-                if (km != null) {
-                    km.requestDismissKeyguard(this, null);
-                }
-            } catch (Exception ignored) {
-            }
-        } else {
-            //noinspection deprecation
-            getWindow().addFlags(
-                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-                            | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-                            | WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
-            );
         }
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        //noinspection deprecation
+        getWindow().addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                        | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                        | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        );
+
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null && !pm.isInteractive()) {
+                //noinspection deprecation
+                PowerManager.WakeLock wl = pm.newWakeLock(
+                        PowerManager.FULL_WAKE_LOCK
+                                | PowerManager.ACQUIRE_CAUSES_WAKEUP
+                                | PowerManager.ON_AFTER_RELEASE,
+                        "santralbayi:incoming_call_wake"
+                );
+                wl.acquire(12000L);
+            }
+        } catch (Exception ignored) {
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             getWindow().setStatusBarColor(Color.parseColor("#070d19"));
@@ -156,6 +162,9 @@ public class LiveCallActivity extends Activity {
         }
 
         readIntentExtras(getIntent());
+        if (!notifKey.isEmpty()) {
+            AndroidBridge.cancelNativeMissedCallNotification(getApplicationContext(), notifKey);
+        }
         buildStandaloneCallUi();
 
         try {

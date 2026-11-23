@@ -177,7 +177,7 @@ public class MissedCallMonitorService extends Service {
     private synchronized void startPollingLoop() {
         if (scheduler != null && !scheduler.isShutdown()) return;
         scheduler = Executors.newSingleThreadScheduledExecutor();
-        scheduler.scheduleWithFixedDelay(this::pollMissedCallsOnce, 1, 2, TimeUnit.SECONDS);
+        scheduler.scheduleWithFixedDelay(this::pollMissedCallsOnce, 0, 1, TimeUnit.SECONDS);
     }
 
     private void broadcastLiveCallEnded(String uuid) {
@@ -278,20 +278,19 @@ public class MissedCallMonitorService extends Service {
                     continue;
                 }
 
-                if (!isLiveCall && activeLiveCallUuids.contains(uuid)) {
-                    broadcastLiveCallEnded(uuid);
+                if (!isLiveCall) {
+                    if (activeLiveCallUuids.contains(uuid)) {
+                        broadcastLiveCallEnded(uuid);
+                    }
+                    continue;
                 }
 
                 String who = !callerName.isEmpty() ? callerName : (!callerPhone.isEmpty() ? callerPhone : "Bilinmeyen Numara");
-                String title = isLiveCall
-                        ? ("📞 Sekreter Görüşüyor • " + who)
-                        : ("📞 Ulaşılamayan Arama • " + who);
+                String title = "📞 Sekreter Görüşüyor • " + who;
 
                 String cleanSummary = summary;
                 if (cleanSummary.isEmpty()) {
-                    cleanSummary = isLiveCall
-                            ? "Size ulaşılamadığı için sekreter karşılıyor. Müsaitseniz hemen ücretsiz internetten alabilirsiniz."
-                            : "Size ulaşılamadığı için çağrıyı sekreter karşıladı. Detayı görmek için dokunun.";
+                    cleanSummary = "Size ulaşılamadığı için sekreter karşılıyor. Müsaitseniz hemen ücretsiz internetten alabilirsiniz.";
                 }
                 String phonePrefix = (!callerPhone.isEmpty() && !who.equals(callerPhone)) ? (callerPhone + " — ") : "";
                 String body = phonePrefix + cleanSummary;
@@ -303,7 +302,7 @@ public class MissedCallMonitorService extends Service {
                         body,
                         callerPhone,
                         uuid,
-                        isLiveCall,
+                        true,
                         ownerPhone,
                         bridgeToken
                 );

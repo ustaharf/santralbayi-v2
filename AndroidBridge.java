@@ -2,6 +2,7 @@ package com.santralbayi.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -35,7 +36,7 @@ import org.json.JSONObject;
 
 public class AndroidBridge {
     public static final String DEFAULT_LIVE_ORIGIN = "http://178.208.187.42:3000";
-    public static final String NATIVE_APK_VERSION = "2.0";
+    public static final String NATIVE_APK_VERSION = "2.1";
 
     private final Activity activity;
     private TextToSpeech tts;
@@ -230,11 +231,62 @@ public class AndroidBridge {
         });
     }
 
+    public static boolean isXiaomiFamilyDevice() {
+        try {
+            String m = Build.MANUFACTURER != null ? Build.MANUFACTURER.toLowerCase(Locale.ROOT) : "";
+            String b = Build.BRAND != null ? Build.BRAND.toLowerCase(Locale.ROOT) : "";
+            return m.contains("xiaomi") || m.contains("redmi") || m.contains("poco")
+                    || b.contains("xiaomi") || b.contains("redmi") || b.contains("poco");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    public static void openXiaomiLockScreenPermissions(Context context) {
+        if (context == null) return;
+        try {
+            Intent miui = new Intent("miui.intent.action.APP_PERM_EDITOR");
+            miui.setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity");
+            miui.putExtra("extra_pkgname", context.getPackageName());
+            miui.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(miui);
+            return;
+        } catch (Exception ignoredPrimary) {
+        }
+        try {
+            Intent miuiAlt = new Intent("miui.intent.action.APP_PERM_EDITOR");
+            miuiAlt.putExtra("extra_pkgname", context.getPackageName());
+            miuiAlt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(miuiAlt);
+            return;
+        } catch (Exception ignoredAlt) {
+        }
+        try {
+            Intent appDetails = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            appDetails.setData(Uri.parse("package:" + context.getPackageName()));
+            appDetails.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(appDetails);
+        } catch (Exception ignoredFallback) {
+        }
+    }
+
+    @JavascriptInterface
+    public boolean isXiaomiOrMiuiDevice() {
+        return isXiaomiFamilyDevice();
+    }
+
+    @JavascriptInterface
+    public void requestXiaomiLockScreenPermissions() {
+        activity.runOnUiThread(() -> openXiaomiLockScreenPermissions(activity));
+    }
+
     @JavascriptInterface
     public String getNativePermissionStatus() {
         JSONObject obj = new JSONObject();
         try {
             obj.put("apkVersion", NATIVE_APK_VERSION);
+            obj.put("sdkInt", Build.VERSION.SDK_INT);
+            obj.put("isXiaomi", isXiaomiFamilyDevice());
             obj.put("overlayGranted", hasOverlayPermission());
             obj.put("batteryIgnored", isBatteryOptimizationIgnored());
             obj.put("fullScreenIntentGranted", canUseFullScreenIntent());
@@ -427,16 +479,45 @@ public class AndroidBridge {
             standaloneCallIntent.putExtra("bridge_token", safeToken);
             standaloneCallIntent.putExtra("auto_accept", false);
 
-            // Canlı arama geldiğinde: telefonun ana ekranı açıkken bile (uygulama kapalı olsa dahi) doğrudan bağımsız ekranı fırlat!
-            if (isLiveCall) {
-                try {
-                    boolean canDirectLaunch = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
-                            || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context));
-                    if (canDirectLaunch) {
-                        context.startActivity(standaloneCallIntent);
-                    }
-                } catch (Exception ignoredLaunch) {
+            // Sadece canlı aramalarda bağımsız TAM EKRAN açılır; kısa "Ulaşılamayan Arama" ekranı çıkarılmaz!
+            if (!isLiveCall) {
+                return;
+            }
+
+            boolean isScreenLockedOrOff = false;
+            try {
+                KeyguardManager km = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
+                PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+                boolean locked = km != null && km.isKeyguardLocked();
+                boolean screenOff = pm != null && !pm.isInteractive();
+                isScreenLockedOrOff = locked || screenOff;
+                if (pm != null && screenOff) {
+                    //noinspection deprecation
+                    PowerManager.WakeLock wl = pm.newWakeLock(
+                            PowerManager.FULL_WAKE_LOCK
+                                    | PowerManager.ACQUIRE_CAUSES_WAKEUP
+                                    | PowerManager.ON_AFTER_RELEASE,
+                            "santralbayi:call_screen_wake"
+                    );
+                    wl.acquire(10000L);
                 }
+            } catch (Exception ignoredWake) {
+            }
+
+            boolean launchedDirectly = false;
+            try {
+                boolean canDirectLaunch = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+                        || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context));
+                if (canDirectLaunch) {
+                    context.startActivity(standaloneCallIntent);
+                    launchedDirectly = true;
+                }
+            } catch (Exception ignoredLaunch) {
+            }
+
+            // Ekran zaten açıksa ve tam ekran doğrudan fırlatıldıysa üstten ekstra kısa şerit düşürme!
+            if (launchedDirectly && !isScreenLockedOrOff) {
+                return;
             }
 
             if (Build.VERSION.SDK_INT >= 33) {
