@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Santral Bayi Akıllı Çağrı Sistemleri</title>
+    <meta name="description" content="Yapay Zeka Destekli Akıllı Santral ve Bayi Yönetim Sistemi" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="SantralBayi" />
+    <meta name="screen-orientation" content="portrait" />
+    <link rel="manifest" href="./manifest.json?v=sb2" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg?v=sb2" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./pwa-192x192.png?v=sb2" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png?v=sb2" />
+    <meta property="og:title" content="Santral Bayi Akıllı Çağrı Sistemleri" />
+    <meta property="og:description" content="Yapay Zeka Destekli Akıllı Çağrı ve Bayi Yönetim Sistemi" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        window.deferredPrompt = e;
+      });
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          const isLiveApp =
+            window.location.hostname === '178.208.187.42' ||
+            Boolean(window.__SB_BUNDLE_KEY__);
+          if (isLiveApp) {
+            navigator.serviceWorker
+              .register('/sw.js?v=sb_offline_v6')
+              .then((reg) => {
+                try {
+                  reg.update();
+                  if (reg.waiting) {
+                    reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                  }
+                } catch (e) {}
+              })
+              .catch(() => {});
+          } else {
+            navigator.serviceWorker
+              .getRegistrations()
+              .then((registrations) => {
+                for (const registration of registrations) {
+                  registration.unregister();
+                }
+              })
+              .catch(() => {});
+          }
+        });
+      }
+    </script>
+      <style>
+      * {
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
+      }
+      *::-webkit-scrollbar {
+        display: none !important;
+        width: 0px !important;
+        height: 0px !important;
+        background: transparent !important;
+      }
+      *::-webkit-scrollbar-thumb {
+        display: none !important;
+        background: transparent !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

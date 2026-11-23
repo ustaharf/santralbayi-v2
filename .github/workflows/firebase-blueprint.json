@@ -1,0 +1,161 @@
+{
+  "entities": {
+    "AdminMember": {
+      "title": "AdminMember",
+      "description": "Trusted administrator registry document keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the administrator."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 256,
+          "description": "Verified administrator email address."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of admin record creation."
+        }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "WorkspaceVault": {
+      "title": "WorkspaceVault",
+      "description": "Owner-isolated SantralBayi persistent state container storing dealers, subscribers, setup profiles, and system rules.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Immutable Firebase Auth UID of the vault owner."
+        },
+        "schemaVersion": {
+          "type": "number",
+          "description": "Monotonic vault schema version."
+        },
+        "dealersJson": {
+          "type": "string",
+          "maxLength": 450000,
+          "description": "Bounded serialized dealers state."
+        },
+        "subscribersJson": {
+          "type": "string",
+          "maxLength": 450000,
+          "description": "Bounded serialized subscribers state."
+        },
+        "profilesJson": {
+          "type": "string",
+          "maxLength": 450000,
+          "description": "Bounded serialized panel setup profiles and secretary rules."
+        },
+        "settingsJson": {
+          "type": "string",
+          "maxLength": 350000,
+          "description": "Bounded serialized pricing, badge, template, and gateway rules."
+        },
+        "operationsJson": {
+          "type": "string",
+          "maxLength": 450000,
+          "description": "Bounded serialized appointments, accounting, and call logs."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest update."
+        }
+      },
+      "required": [
+        "ownerId",
+        "schemaVersion",
+        "dealersJson",
+        "subscribersJson",
+        "profilesJson",
+        "settingsJson",
+        "operationsJson",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WorkspaceSnapshot": {
+      "title": "WorkspaceSnapshot",
+      "description": "Relational backup snapshot belonging to a WorkspaceVault parent.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Immutable Firebase Auth UID matching parent WorkspaceVault ownerId."
+        },
+        "workspaceId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Parent workspace document ID."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Human-readable snapshot label."
+        },
+        "payloadJson": {
+          "type": "string",
+          "maxLength": 850000,
+          "description": "Bounded snapshot payload."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ACTIVE", "LOCKED"],
+          "maxLength": 16,
+          "description": "Lifecycle state; LOCKED is terminal for non-admins."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Immutable server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest update."
+        }
+      },
+      "required": [
+        "ownerId",
+        "workspaceId",
+        "label",
+        "payloadJson",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminMember" },
+      "description": "Trusted administrator membership collection."
+    },
+    "/workspaces/{workspaceId}": {
+      "schema": { "$ref": "#/entities/WorkspaceVault" },
+      "description": "Owner-isolated persistent state vault keyed by user UID."
+    },
+    "/workspaces/{workspaceId}/snapshots/{snapshotId}": {
+      "schema": { "$ref": "#/entities/WorkspaceSnapshot" },
+      "description": "Versioned backup snapshots under a user's workspace vault."
+    }
+  }
+}
