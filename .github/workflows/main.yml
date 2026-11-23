@@ -68,6 +68,11 @@ jobs:
           if [ -d "android-bridge" ]; then
             cp -f android-bridge/*.java android/app/src/main/java/com/santralbayi/app/
           fi
+          for jf in *.java; do
+            if [ -f "$jf" ]; then
+              cp -f "$jf" android/app/src/main/java/com/santralbayi/app/
+            fi
+          done
           node -e '
             const fs = require("fs");
             const p = "android/app/src/main/AndroidManifest.xml";
