@@ -1,1 +1,290 @@
+name: Android APK Olustur
+
+permissions:
+  contents: write
+
+concurrency:
+  group: santralbayi-apk-build
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodlari Cek
+        uses: actions/checkout@v4
+
+      - name: Node Kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Java Kur
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: ZIP Dosyasini Ac ve Canli Logoyu Cek
+        run: |
+          latest_zip=$(ls -t *.zip 2>/dev/null | head -n 1 || true)
+          if [ -n "$latest_zip" ] && [ -f "$latest_zip" ]; then
+            mkdir -p _unzipped
+            unzip -oq "$latest_zip" -d _unzipped
+            rm -rf _unzipped/.github _unzipped/.aistudio
+            cp -rf _unzipped/. .
+            rm -rf _unzipped
+          fi
+          find public/assets/aistudio -type f ! -name "*.mp3" ! -name "*.wav" ! -name "*.json" -delete 2>/dev/null || true
+          mkdir -p public src
+          curl -fsSL "http://178.208.187.42:3000/pwa-512x512.png" -o public/pwa-512x512.png
+          curl -fsSL "http://178.208.187.42:3000/pwa-maskable-512x512.png" -o public/pwa-maskable-512x512.png
+          curl -fsSL "http://178.208.187.42:3000/pwa-192x192.png" -o public/pwa-192x192.png
+          curl -fsSL "http://178.208.187.42:3000/apple-touch-icon.png" -o public/apple-touch-icon.png
+          curl -fsSL "http://178.208.187.42:3000/manifest.json" -o public/manifest.json
+          sed -i "s/appName: 'SantralBayi'/appName: 'Santral Bayi'/g" capacitor.config.ts || true
+          for f in *.tsx *.ts *.css; do
+            if [ -f "$f" ] && [ "$f" != "vite.config.ts" ] && [ "$f" != "capacitor.config.ts" ] && [ "$f" != "server.ts" ]; then
+              cp -f "$f" src/
+            fi
+          done
+          rm -rf dist android/app/src/main/assets/public
+          npm install
+          npm run build
+
+      - name: Android Hazirla ve Kurumsal Logoyu Gom
+        run: |
+          if ! command -v convert >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+          fi
+          npx cap add android || true
+          npx cap sync android
+          mkdir -p android/app/src/main/java/com/santralbayi/app android-bridge
+          if [ -d "android-bridge" ]; then
+            cp -f android-bridge/*.java android/app/src/main/java/com/santralbayi/app/ 2>/dev/null || true
+          fi
+          for jf in *.java; do
+            if [ -f "$jf" ]; then
+              cp -f "$jf" android/app/src/main/java/com/santralbayi/app/
+            fi
+          done
+          # Canlı sunucudan en güncel telefon dosyalarını otomatik çek (bir daha indir-yükle gerekmez!)
+          if curl -fsSL "http://178.208.187.42:3000/_android/files.json" -o /tmp/sb_android_files.json; then
+            node -e 'const list=JSON.parse(require("fs").readFileSync("/tmp/sb_android_files.json","utf8")); for(const f of list){ if(/^[A-Za-z0-9_.-]+\.java$/.test(f)) console.log(f); }' | while read -r live_jf; do
+              curl -fsSL "http://178.208.187.42:3000/_android/${live_jf}" -o "android-bridge/${live_jf}"
+              cp -f "android-bridge/${live_jf}" "android/app/src/main/java/com/santralbayi/app/${live_jf}"
+            done
+          fi
+          node -e '
+            const fs = require("fs");
+            const p = "android/app/src/main/AndroidManifest.xml";
+            let xml = fs.readFileSync(p, "utf8");
+            const perms = [
+              { name: "android.permission.CALL_PHONE" },
+              { name: "android.permission.READ_PHONE_STATE" },
+              { name: "android.permission.READ_PHONE_NUMBERS" },
+              { name: "android.permission.READ_CALL_LOG" },
+              { name: "android.permission.ANSWER_PHONE_CALLS" },
+              { name: "android.permission.MANAGE_OWN_CALLS" },
+              { name: "android.permission.READ_CONTACTS" },
+              { name: "android.permission.WRITE_CONTACTS" },
+              { name: "android.permission.RECORD_AUDIO" },
+              { name: "android.permission.MODIFY_AUDIO_SETTINGS" },
+              { name: "android.permission.CAMERA" },
+              { name: "android.permission.READ_MEDIA_IMAGES" },
+              { name: "android.permission.READ_MEDIA_AUDIO" },
+              { name: "android.permission.READ_EXTERNAL_STORAGE", maxSdk: 32 },
+              { name: "android.permission.WRITE_EXTERNAL_STORAGE", maxSdk: 29 },
+              { name: "android.permission.ACCESS_FINE_LOCATION" },
+              { name: "android.permission.ACCESS_COARSE_LOCATION" },
+              { name: "android.permission.READ_CALENDAR" },
+              { name: "android.permission.WRITE_CALENDAR" },
+              { name: "android.permission.VIBRATE" },
+              { name: "android.permission.BLUETOOTH" },
+              { name: "android.permission.BLUETOOTH_CONNECT" },
+              { name: "android.permission.POST_NOTIFICATIONS" },
+              { name: "android.permission.ACCESS_NOTIFICATION_POLICY" },
+              { name: "android.permission.USE_BIOMETRIC" },
+              { name: "android.permission.ACCESS_NETWORK_STATE" },
+              { name: "android.permission.ACCESS_WIFI_STATE" },
+              { name: "android.permission.FOREGROUND_SERVICE" },
+              { name: "android.permission.FOREGROUND_SERVICE_DATA_SYNC" },
+              { name: "android.permission.FOREGROUND_SERVICE_PHONE_CALL" },
+              { name: "android.permission.FOREGROUND_SERVICE_MICROPHONE" },
+              { name: "android.permission.RECEIVE_BOOT_COMPLETED" },
+              { name: "android.permission.WAKE_LOCK" },
+              { name: "android.permission.DISABLE_KEYGUARD" },
+              { name: "android.permission.USE_FULL_SCREEN_INTENT" },
+              { name: "android.permission.SYSTEM_ALERT_WINDOW" },
+              { name: "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" },
+              { name: "android.permission.SCHEDULE_EXACT_ALARM" }
+            ];
+            const missing = perms
+              .filter(p => !xml.includes("\"" + p.name + "\""))
+              .map(p => p.maxSdk
+                ? "    <uses-permission android:name=\"" + p.name + "\" android:maxSdkVersion=\"" + p.maxSdk + "\" />"
+                : "    <uses-permission android:name=\"" + p.name + "\" />")
+              .join("\n");
+            if (!xml.includes("usesCleartextTraffic")) {
+              xml = xml.replace("<application", "<application android:usesCleartextTraffic=\"true\"");
+            }
+            if (missing) {
+              xml = xml.replace("<application", missing + "\n\n    <application");
+            }
+            const components = [
+              "        <activity android:name=\"com.santralbayi.app.LiveCallActivity\" android:exported=\"false\" android:launchMode=\"singleTop\" android:taskAffinity=\"com.santralbayi.app.call\" android:excludeFromRecents=\"true\" android:showWhenLocked=\"true\" android:turnScreenOn=\"true\" android:screenOrientation=\"portrait\" android:theme=\"@android:style/Theme.DeviceDefault.NoActionBar\" />",
+              "        <service android:name=\"com.santralbayi.app.MissedCallMonitorService\" android:exported=\"false\" android:foregroundServiceType=\"dataSync\" />",
+              "        <service android:name=\"com.santralbayi.app.SantralFcmService\" android:exported=\"false\"><intent-filter><action android:name=\"com.google.firebase.MESSAGING_EVENT\" /></intent-filter></service>",
+              "        <receiver android:name=\"com.santralbayi.app.MissedCallActionReceiver\" android:exported=\"false\" />",
+              "        <receiver android:name=\"com.santralbayi.app.BootCompletedReceiver\" android:exported=\"true\"><intent-filter><action android:name=\"android.intent.action.BOOT_COMPLETED\" /><action android:name=\"android.intent.action.MY_PACKAGE_REPLACED\" /></intent-filter></receiver>"
+            ].filter(line => {
+              const m = line.match(/android:name="([^"]+)"/);
+              return m && !xml.includes(m[1]);
+            }).join("\n");
+            if (components) {
+              xml = xml.replace("</application>", components + "\n    </application>");
+            }
+            fs.writeFileSync(p, xml);
+
+            // Google Anlık Uyandırma (FCM) kütüphanesi & google-services.json otomatik bağlama
+            const appGradlePath = "android/app/build.gradle";
+            let appGradle = fs.readFileSync(appGradlePath, "utf8");
+            if (!appGradle.includes("firebase-messaging")) {
+              appGradle = appGradle.replace(
+                "dependencies {",
+                "dependencies {\n    implementation \"com.google.firebase:firebase-messaging:24.1.0\""
+              );
+              fs.writeFileSync(appGradlePath, appGradle);
+            }
+            const gsCandidates = ["google-services.json", "android-bridge/google-services.json"];
+            const foundGs = gsCandidates.find(f => fs.existsSync(f));
+            if (foundGs) {
+              fs.copyFileSync(foundGs, "android/app/google-services.json");
+              const rootGradlePath = "android/build.gradle";
+              let rootGradle = fs.readFileSync(rootGradlePath, "utf8");
+              if (!rootGradle.includes("com.google.gms:google-services")) {
+                rootGradle = rootGradle.replace(
+                  /dependencies\s*\{/,
+                  "dependencies {\n        classpath \"com.google.gms:google-services:4.4.2\""
+                );
+                fs.writeFileSync(rootGradlePath, rootGradle);
+              }
+            }
+          '
+          cat << 'EOF' > android/app/src/main/res/values/colors.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="colorPrimary">#0f172a</color>
+              <color name="colorPrimaryDark">#0f172a</color>
+              <color name="colorAccent">#0ea5e9</color>
+          </resources>
+          EOF
+          sed -i 's/^          //' android/app/src/main/res/values/colors.xml
+
+          cat << 'EOF' > android/app/src/main/res/values/ic_launcher_background.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_launcher_background">#0f172a</color>
+          </resources>
+          EOF
+          sed -i 's/^          //' android/app/src/main/res/values/ic_launcher_background.xml
+
+          mkdir -p android/app/src/main/res/mipmap-anydpi-v26
+          cat << 'EOF' > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          EOF
+          sed -i 's/^          //' android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          cp -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+
+          rm -f android/app/src/main/res/drawable/ic_launcher_background.xml
+          rm -f android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml
+
+          for pair in "mdpi:48:108" "hdpi:72:162" "xhdpi:96:216" "xxhdpi:144:324" "xxxhdpi:192:432"; do
+            dens="${pair%%:*}"
+            rest="${pair#*:}"
+            legacy_sz="${rest%%:*}"
+            fg_sz="${rest#*:}"
+            inner_sz=$(( fg_sz * 68 / 100 ))
+            dir="android/app/src/main/res/mipmap-${dens}"
+            mkdir -p "$dir"
+            convert public/pwa-512x512.png -resize "${legacy_sz}x${legacy_sz}" "$dir/ic_launcher.png"
+            convert public/pwa-maskable-512x512.png -resize "${legacy_sz}x${legacy_sz}" "$dir/ic_launcher_round.png"
+            convert -size "${fg_sz}x${fg_sz}" xc:"#0f172a" \
+              \( public/pwa-maskable-512x512.png -resize "${inner_sz}x${inner_sz}" \) \
+              -gravity center -composite "$dir/ic_launcher_foreground.png"
+          done
+
+          for sp in android/app/src/main/res/drawable*/splash.png; do
+            if [ -f "$sp" ]; then
+              convert -size 1080x1920 xc:"#0f172a" \
+                \( public/pwa-maskable-512x512.png -resize 520x520 \) \
+                -gravity center -composite "$sp"
+            fi
+          done
+
+          cat << 'EOF' > android/app/src/main/res/values/styles.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+                  <item name="colorPrimary">@color/colorPrimary</item>
+                  <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+                  <item name="colorAccent">@color/colorAccent</item>
+                  <item name="android:statusBarColor">#0f172a</item>
+                  <item name="android:navigationBarColor">#0f172a</item>
+                  <item name="android:windowBackground">#0f172a</item>
+              </style>
+              <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.NoActionBar">
+                  <item name="windowActionBar">false</item>
+                  <item name="windowNoTitle">true</item>
+                  <item name="android:background">@null</item>
+                  <item name="android:statusBarColor">#0f172a</item>
+                  <item name="android:navigationBarColor">#0f172a</item>
+                  <item name="android:windowBackground">#0f172a</item>
+              </style>
+              <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+                  <item name="android:background">@drawable/splash</item>
+              </style>
+          </resources>
+          EOF
+          sed -i 's/^          //' android/app/src/main/res/values/styles.xml
+
+      - name: APK Derle
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: APK Kaydet (v2.5 Omurluk)
+        run: |
+          mkdir -p output-apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk output-apk/santralbayi-v2.0.apk
+
+      - name: ZIPsiz Direkt APK Yayinla
+        uses: softprops/action-gh-release@v2
+        continue-on-error: true
+        with:
+          tag_name: "v2.5.${{ github.run_number }}"
+          name: "SantralBayi v2.5 Omurluk (#${{ github.run_number }})"
+          files: output-apk/santralbayi-v2.0.apk
+          make_latest: true
+
+      - name: APK Indirilebilir Yap
+        uses: actions/upload-artifact@v4
+        with:
+          name: santralbayi-v2.5-apk
+          path: output-apk/santralbayi-v2.0.apk
+
+      - name: Indirme Linkini Yazdir
+        run: |
+          echo "## 📲 SantralBayi v2.5 (Ömürlük Tek Paket) Hazır" >> $GITHUB_STEP_SUMMARY
+          echo "👉 **[📥 SantralBayi Son Paket Doğrudan İndir](https://github.com/${{ github.repository }}/releases/latest/download/santralbayi-v2.0.apk)**" >> $GITHUB_STEP_SUMMARY
 
